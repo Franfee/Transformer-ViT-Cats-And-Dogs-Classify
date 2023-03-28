@@ -74,13 +74,13 @@ class Transformer(nn.Module):
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
                 PreNorm(dim, Attention(dim, heads=heads, dim_head=dim_head, dropout=dropout)),  # 进入前LN正则化,接着attention层
-                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))                        # 进入前LN正则化,接着FFN层
+                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))  # 进入前LN正则化,接着FFN层
             ]))
 
     def forward(self, x):
         for attn, ff in self.layers:
-            x = attn(x) + x     # 残差连接Add
-            x = ff(x) + x       # 残差连接Add
+            x = attn(x) + x  # 残差连接Add
+            x = ff(x) + x  # 残差连接Add
         return x
 
 
@@ -95,26 +95,26 @@ class ViT(nn.Module):
             'Image dimensions must be divisible by the patch size.'
 
         num_patches = (image_height // patch_height) * (image_width // patch_width)
-        patch_dim = channels * patch_height * patch_width   # token纬度,论文page3
+        patch_dim = channels * patch_height * patch_width  # token纬度,论文page3
         assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
 
-        self.to_patch_embedding = nn.Sequential(    # 论文中page3蓝色字: X*E=[196x768]*[768x768]=[196x768]
+        self.to_patch_embedding = nn.Sequential(  # 论文中page3蓝色字: X*E=[196x768]*[768x768]=[196x768]
             Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1=patch_height, p2=patch_width),
-            nn.Linear(patch_dim, dim),              # 架构图中 Linear Projection of Flattened Patches
+            nn.Linear(patch_dim, dim),  # 架构图中 Linear Projection of Flattened Patches
         )
         # 与transformer论文不同的点,可学习的位置编码
-        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, dim))     # 论文中[1 x (196+1) x 768]
-        self.cls_token = nn.Parameter(torch.randn(1, 1, dim))                       # 论文中[1x1x768]
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, dim))  # 论文中[1 x (196+1) x 768]
+        self.cls_token = nn.Parameter(torch.randn(1, 1, dim))  # 论文中[1x1x768]
         self.dropout = nn.Dropout(emb_dropout)
 
-        self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout)   # transformer论文的编码器
+        self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout)  # transformer论文的编码器
 
-        self.pool = pool                    # cls汇聚方式:             数据使用cls[batch x数据第0号token]
-        self.to_latent = nn.Identity()      # 不区分参数的占位符标识运算符,可以放到残差网络里就是在跳过连接的地方用这个层,此处仅占位
+        self.pool = pool  # cls汇聚方式:             数据使用cls[batch x数据第0号token]
+        self.to_latent = nn.Identity()  # 不区分参数的占位符标识运算符,可以放到残差网络里就是在跳过连接的地方用这个层,此处仅占位
 
-        self.mlp_head = nn.Sequential(      # 解码器,由于任务简单,使用mlp,数据使用cls[batch x数据第0号token]
-            nn.LayerNorm(dim),              # 论文架构图 橙色MLP Head
-            nn.Linear(dim, num_classes)     # 论文架构图 橙色Class
+        self.mlp_head = nn.Sequential(  # 解码器,由于任务简单,使用mlp,数据使用cls[batch x数据第0号token]
+            nn.LayerNorm(dim),  # 论文架构图 橙色MLP Head
+            nn.Linear(dim, num_classes)  # 论文架构图 橙色Class
         )
 
     def forward(self, img):
@@ -124,11 +124,11 @@ class ViT(nn.Module):
         :return:
         """
         x = self.to_patch_embedding(img)
-        b, n, _ = x.shape   # 论文中x=[Bx196x768]
+        b, n, _ = x.shape  # 论文中x=[Bx196x768]
 
         cls_tokens = repeat(self.cls_token, '1 1 d -> b 1 d', b=b)  # 论文中cls=[Bx1x768]
-        x = torch.cat((cls_tokens, x), dim=1)                       # 论文中XE=[(196+1)x768],x=[Bx(196+1)x768]
-        x += self.pos_embedding[:, :(n + 1)]                        # 直接加
+        x = torch.cat((cls_tokens, x), dim=1)  # 论文中XE=[(196+1)x768],x=[Bx(196+1)x768]
+        x += self.pos_embedding[:, :(n + 1)]  # 直接加
         x = self.dropout(x)
 
         x = self.transformer(x)
@@ -137,3 +137,11 @@ class ViT(nn.Module):
 
         x = self.to_latent(x)
         return self.mlp_head(x)
+
+
+if __name__ == '__main__':
+    DEVICE = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+    model = ViT(image_size=224, patch_size=32, num_classes=10, dim=128, depth=12, heads=12, mlp_dim=128).to(DEVICE)
+    x = torch.rand(1, 3, 224, 224).to(DEVICE)
+    out = model(x)
+    print(x.shape, out.shape)
